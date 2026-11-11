@@ -52,6 +52,21 @@ def inicio_por_regla(fecha_publicacion: date) -> tuple[date, str]:
     return siguiente, "primer día del mes calendario siguiente a la publicación"
 
 
+DURACIONES_VALIDAS = (3, 4, 5)   # Ley del Servicio Universal: no menor de 3 ni mayor de 5 años
+
+
+def duracion_desde_anios(anio_inicio: int | None, anio_fin: int | None, inicio: date | None = None) -> int | None:
+    """Duración a partir de los años del título ("2025-2028" -> 4; "2023-2028" con inicio en diciembre -> 5)."""
+    if not anio_inicio or not anio_fin:
+        return None
+    n = anio_fin - anio_inicio + 1          # años calendario completos (regla del año fiscal)
+    if inicio and inicio.month != 1:
+        n = anio_fin - anio_inicio          # el periodo empieza a mitad de año y termina el año del título
+    if n not in DURACIONES_VALIDAS and (n - 1) in DURACIONES_VALIDAS:
+        n -= 1
+    return n if n in DURACIONES_VALIDAS else None
+
+
 def termino(inicio: date, anios: int) -> date:
     return sumar_meses(inicio, 12 * int(anios)) - timedelta(days=1)
 
@@ -97,14 +112,14 @@ def estado(inicio: date | None, anios: int | None, hoy: date, solicitud_presenta
     if hoy > fin:
         return EstadoPeriodo("fin", "Periodo terminado", inicio, fin, hs)
     if sol and sol.fecha < hoy and not solicitud_presentada:
-        return EstadoPeriodo("rojo", "Solicitud no presentada", inicio, fin, hs, sol, (sol.fecha - hoy).days)
+        return EstadoPeriodo("rojo", "Solicitud no registrada", inicio, fin, hs, sol, (sol.fecha - hoy).days)
     if solicitud_presentada:
         return EstadoPeriodo("fin", "En revisión periódica", inicio, fin, hs)
     prox = next((h for h in hs if h.fecha >= hoy), None)
     if prox is None:
-        return EstadoPeriodo("verde", "Último año del periodo", inicio, fin, hs)
+        return EstadoPeriodo("verde", "Estudio tarifario vigente (último año)", inicio, fin, hs)
     dias = (prox.fecha - hoy).days
     umbral = int(reglas().get("semaforo", {}).get("por_vencer_dias", 90))
     if dias <= umbral:
         return EstadoPeriodo("ambar", "Hito próximo", inicio, fin, hs, prox, dias)
-    return EstadoPeriodo("verde", "En curso", inicio, fin, hs, prox, dias)
+    return EstadoPeriodo("verde", "Estudio tarifario vigente", inicio, fin, hs, prox, dias)

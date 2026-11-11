@@ -35,14 +35,14 @@ except Exception:
 
 from ai import llm  # noqa: E402
 from ai.asistente import Asistente  # noqa: E402
-from ai.extraer_resolucion import extraer  # noqa: E402
+from ai.extraer_resolucion import extraer, extraer_url  # noqa: E402
 from backend import datos as D  # noqa: E402
 from backend import periodos as R  # noqa: E402
 from backend import plazos as P  # noqa: E402
 
 COLORES = {"rojo": "#B8432F", "ambar": "#C98A12", "verde": "#2F8A5B", "fin": "#5E7F94", "sin": "#AEBBC1"}
 ETIQUETAS = {"rojo": "Vencido", "ambar": "Por vencer", "verde": "A tiempo", "fin": "Concluido", "sin": "Sin procedimiento"}
-ETIQUETAS_PER = {"rojo": "Solicitud no presentada", "ambar": "Hito próximo", "verde": "En curso",
+ETIQUETAS_PER = {"rojo": "Solicitud no registrada", "ambar": "Hito próximo", "verde": "Estudio tarifario vigente",
                  "fin": "En revisión o terminado", "sin": "Sin periodo"}
 PESO = {"rojo": 0, "ambar": 1, "verde": 2, "fin": 3, "sin": 4}
 MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"]
@@ -165,6 +165,10 @@ def mostrar_periodo(f: D.Fila) -> None:
         return
     with st.expander(f"Periodo regulatorio: {fmt(ep.inicio)} – {fmt(ep.termino)} · {ep.texto}", expanded=False):
         st.write(f"Aprobado por **{per['resolucion']}** · {per['anios']} años · fuente: `{per['fuente']}`")
+        if per.get("archivo", "").startswith("http"):
+            st.markdown(f"[Ver la norma en El Peruano]({per['archivo']})")
+        if per.get("nota"):
+            st.caption(per["nota"])
         st.dataframe(tabla_hitos(ep), hide_index=True, use_container_width=True)
 
 
@@ -184,6 +188,8 @@ def tip_mapa(f: D.Fila, modo: str) -> str:
         s = base + ep.texto
         if ep.inicio:
             s += f"<br>Periodo {fmt(ep.inicio)} – {fmt(ep.termino)}"
+            if f.periodo and f.periodo.get("fuente") == "el_peruano":
+                s += f"<br>{f.periodo['resolucion']} (El Peruano)"
         if ep.proximo:
             s += f"<br>{ep.proximo.nombre}: {fmt(ep.proximo.fecha)}"
         return s
@@ -273,6 +279,7 @@ with tab_tab:
 
 # ---------------- pestaña: periodo regulatorio ----------------
 with tab_per:
+    st.caption("Fuente «El Peruano (real)»: periodos tomados de resoluciones publicadas; «demo»: datos sintéticos.")
     st.caption("Plazos que se cuentan hacia atrás desde el término del periodo regulatorio: la Sunass comunica el "
                "siguiente periodo como máximo 19 meses antes (art. 12.1 y 38.2 del Reglamento General de Tarifas) y "
                "la EPS presenta su solicitud a más tardar 10 meses antes (art. 38.1). Reglas en `data/reglas/periodo.yaml`.")
@@ -296,7 +303,9 @@ with tab_per:
             "Sunass comunica (19 m)": hito(f, "comunicacion_sunass"),
             "EPS solicita (10 m)": hito(f, "solicitud_eps"),
             "Término": fmt(f.estado_periodo.termino),
-            "Resolución": f.periodo["resolucion"], "Fuente": f.periodo["fuente"],
+            "Resolución": f.periodo["resolucion"],
+            "Fuente": "El Peruano (real)" if f.periodo["fuente"] == "el_peruano" else
+                      "PDF subido" if f.periodo["fuente"] == "pdf" else "demo",
         } for f in xs])
         st.dataframe(dfp, hide_index=True, use_container_width=True, height=420)
 
@@ -372,6 +381,17 @@ with tab_pdf:
                 st.session_state.extraccion = (nombre_pdf, extraer(pdf_bytes))
             except Exception as e:
                 st.error(f"No se pudo leer el documento: {e}")
+
+    st.write("**…o pega el enlace de la norma en El Peruano** (busquedas.elperuano.pe/dispositivo/NL/…)")
+    u1, u2 = st.columns([3, 1])
+    url_norma = u1.text_input("Enlace de El Peruano", label_visibility="collapsed",
+                              placeholder="https://busquedas.elperuano.pe/dispositivo/NL/2332109-1")
+    if u2.button("Leer enlace", use_container_width=True, disabled=not url_norma):
+        with st.spinner("Descargando la norma de El Peruano y leyéndola…"):
+            try:
+                st.session_state.extraccion = (url_norma.strip(), extraer_url(url_norma.strip()))
+            except Exception as e:
+                st.error(f"No se pudo leer el enlace: {e}")
 
     if "extraccion" in st.session_state:
         nombre_pdf, x = st.session_state.extraccion
@@ -466,11 +486,17 @@ with tab_pdf:
                 r1, r2 = st.columns(2)
                 inicio_p = r1.date_input("Inicio del periodo regulatorio", value=ini_calc, format="DD/MM/YYYY")
                 r1.caption(f"Calculado como {expl} ({origen}).")
-                anios_p = r2.number_input("Duración (años)", min_value=1, max_value=10,
-                                          value=int(d.get("duracion_anios") or 5))
+                sugerida = d.get("duracion_anios") or R.duracion_desde_anios(
+                    d.get("periodo_anio_inicio"), d.get("periodo_anio_fin"), ini_calc) or 5
+                anios_p = r2.selectbox("Duración (años)", [3, 4, 5], index=[3, 4, 5].index(int(sugerida)),
+                                       help="La Ley del Servicio Universal fija periodos de 3 a 5 años.")
                 if d.get("periodo_anio_inicio"):
                     r2.caption(f"La resolución menciona el periodo {d['periodo_anio_inicio']}–"
                                f"{d.get('periodo_anio_fin') or '?'}.")
+                    fin_prev = R.termino(inicio_p, int(anios_p))
+                    if d.get("periodo_anio_fin") and fin_prev.year != d["periodo_anio_fin"]:
+                        st.warning(f"Con {anios_p} años el periodo terminaría en {fin_prev.year}, pero la resolución "
+                                   f"dice {d['periodo_anio_fin']}. Revisa la duración.")
                     if d["periodo_anio_inicio"] != inicio_p.year:
                         st.warning(f"El año de inicio que dice la resolución ({d['periodo_anio_inicio']}) no coincide "
                                    f"con el calculado ({inicio_p.year}). Revísalo antes de guardar.")
@@ -494,7 +520,7 @@ with tab_chat:
     st.caption(f"Responde consultando el motor de plazos. EPS seleccionada: **{sel_nombre or 'ninguna'}**.")
     sugerencias = [f"¿Cuáles son los plazos de {sel_nombre}?" if sel_nombre else "¿Qué plazos tiene SEDAPAL?",
                    "¿Qué vence en los próximos 10 días hábiles?",
-                   "¿Qué EPS no presentaron su solicitud a tiempo?",
+                   "¿Qué EPS no tienen registrada su solicitud?",
                    "¿Qué subgerencia tiene más plazos vencidos?"]
     cs = st.columns(len(sugerencias))
     pregunta = None

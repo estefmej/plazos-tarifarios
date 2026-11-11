@@ -93,3 +93,18 @@ def test_solicitud_no_presentada():
     assert ep.clase == "rojo"
     ep2 = R.estado(date(2022, 1, 1), 5, date(2026, 6, 1), solicitud_presentada=True)
     assert ep2.texto == "En revisión periódica"
+
+
+def test_casos_reales_el_peruano():
+    # EPSEL: RCD 00063-2024, publicada 06/10/2024, 4 años, año fiscal siguiente
+    fin = R.termino(date(2025, 1, 1), 4)
+    assert fin == date(2028, 12, 31)
+    assert {h.id: h.fecha for h in R.hitos(fin)}["comunicacion_sunass"] == date(2027, 5, 31)
+    # EPS Marañón: RCD 066-2023, publicada 05/11/2023, mes siguiente, "2023-2028" = 5 años
+    ini, _ = R.inicio_por_regla(date(2023, 11, 5))
+    assert ini == date(2023, 12, 1)
+    assert R.duracion_desde_anios(2023, 2028, ini) == 5
+    assert R.termino(ini, 5) == date(2028, 11, 30)
+    # EMAPISCO: periodo 2024-2026, 3 años
+    assert R.duracion_desde_anios(2024, 2026, date(2024, 1, 1)) == 3
+    assert R.termino(date(2024, 1, 1), 3) == date(2026, 12, 31)

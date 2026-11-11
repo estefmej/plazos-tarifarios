@@ -11,6 +11,7 @@ from __future__ import annotations
 import difflib
 import io
 import re
+from html import unescape
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
@@ -18,6 +19,7 @@ from pathlib import Path
 from pypdf import PdfReader
 
 from ai import llm
+from backend import periodos as R
 from backend.datos import lista_eps, normalizar
 
 PROMPT = (Path(__file__).parent / "prompts" / "extraccion.md").read_text(encoding="utf-8")
@@ -119,10 +121,22 @@ def _limpiar(d: dict) -> tuple[dict, list[str]]:
             d[campo] = int(d.get(campo)) if d.get(campo) not in (None, "") else None
         except (TypeError, ValueError):
             d[campo] = None
-    if not d.get("duracion_anios") and d.get("periodo_anio_inicio") and d.get("periodo_anio_fin"):
-        d["duracion_anios"] = d["periodo_anio_fin"] - d["periodo_anio_inicio"] + 1
+    if d.get("duracion_anios") not in (None, 3, 4, 5):
+        avisos.append(f"Duración leída de {d['duracion_anios']} años: el periodo solo puede ser de 3, 4 o 5 años.")
+        d["duracion_anios"] = None
     if d.get("regla_inicio_periodo") not in ("anio_fiscal_siguiente", "mes_siguiente"):
         d["regla_inicio_periodo"] = None
+    if not d.get("duracion_anios") and d.get("periodo_anio_inicio") and d.get("periodo_anio_fin"):
+        inicio = None
+        pub = a_fecha(d.get("fecha_publicacion_el_peruano"))
+        if pub:
+            if d.get("regla_inicio_periodo") == "anio_fiscal_siguiente":
+                inicio = date(pub.year + 1, 1, 1)
+            elif d.get("regla_inicio_periodo") == "mes_siguiente":
+                inicio = R.sumar_meses(pub.replace(day=1), 1)
+            else:
+                inicio = R.inicio_por_regla(pub)[0]
+        d["duracion_anios"] = R.duracion_desde_anios(d["periodo_anio_inicio"], d["periodo_anio_fin"], inicio)
     if not d.get("fecha_publicacion_el_peruano"):
         avisos.append("No se encontró la fecha de publicación en El Peruano: ingrésala a mano antes de guardar.")
     if d.get("fecha_emision") and d.get("fecha_publicacion_el_peruano") \
@@ -153,10 +167,12 @@ def extraer_basico(texto: str) -> dict:
     per = re.search(r"periodo regulatorio\s+(\d{4})\s*[-–]\s*(\d{4})", t)
     regla = ("anio_fiscal_siguiente" if "primer dia del ano fiscal siguiente" in t else
              "mes_siguiente" if "primer dia del mes calendario siguiente" in t else None)
+    dur = re.search(r"periodo regulatorio de (\d|tres|cuatro|cinco) anos", t)
+    palabras = {"tres": 3, "cuatro": 4, "cinco": 5}
     return {
+        "duracion_anios": (palabras.get(dur.group(1)) or int(dur.group(1))) if dur else None,
         "periodo_anio_inicio": int(per.group(1)) if per else None,
         "periodo_anio_fin": int(per.group(2)) if per else None,
-        "duracion_anios": None,
         "regla_inicio_periodo": regla,
         "es_resolucion": "resolucion" in t,
         "tipo": tipo,
@@ -173,9 +189,15 @@ def extraer_basico(texto: str) -> dict:
 
 # ---------- punto de entrada ----------
 
-def extraer(pdf: bytes) -> Extraccion:
-    texto, paginas = texto_pdf(pdf)
-    escaneado = len(re.sub(r"\[Página \d+\]|\s", "", texto)) < 300
+def _fecha_pagina_el_peruano(texto: str) -> str | None:
+    """La página de El Peruano trae «Fecha de publicación: dd/mm/aaaa»: es el dato más confiable."""
+    m = re.search(r"Fecha de publicaci[oó]n:\s*(\d{1,2}/\d{1,2}/\d{4})", texto)
+    f = a_fecha(m.group(1)) if m else None
+    return f.isoformat() if f else None
+
+
+def extraer_texto(texto: str, paginas: int = 1, pdf: bytes | None = None) -> Extraccion:
+    escaneado = pdf is not None and len(re.sub(r"\[Página \d+\]|\s", "", texto)) < 300
     avisos: list[str] = []
 
     if llm.disponible():
@@ -190,8 +212,42 @@ def extraer(pdf: bytes) -> Extraccion:
         if escaneado:
             avisos.append("El PDF parece escaneado y el lector básico no puede leer imágenes.")
 
+    fecha_pagina = _fecha_pagina_el_peruano(texto)
+    if fecha_pagina:
+        if datos.get("fecha_publicacion_el_peruano") and a_fecha(datos["fecha_publicacion_el_peruano"]) \
+                and a_fecha(datos["fecha_publicacion_el_peruano"]).isoformat() != fecha_pagina:
+            avisos.append(f"La IA leyó otra fecha de publicación; se usa la de la página de El Peruano ({fecha_pagina}).")
+        datos["fecha_publicacion_el_peruano"] = fecha_pagina
+
     datos, avisos_limpieza = _limpiar(datos)
     eps_id, confianza = emparejar_eps(datos.get("eps"), texto)
     if eps_id is None:
         avisos.append("No se reconoció la EPS en el catálogo: elígela a mano.")
     return Extraccion(datos, eps_id, confianza, modo, paginas, texto, avisos + avisos_limpieza)
+
+
+def extraer(pdf: bytes) -> Extraccion:
+    texto, paginas = texto_pdf(pdf)
+    return extraer_texto(texto, paginas, pdf)
+
+
+def html_a_texto(html: str) -> str:
+    html = re.sub(r"(?is)<(script|style|noscript)[^>]*>.*?</\1>", " ", html)
+    html = re.sub(r"(?i)<br\s*/?>|</(p|div|h\d|li|tr|table|section)>", "\n", html)
+    texto = re.sub(r"<[^>]+>", " ", html)
+    texto = unescape(texto)
+    texto = re.sub(r"[ \t\r\f\v]+", " ", texto)
+    return re.sub(r"\n\s*\n+", "\n", texto).strip()
+
+
+def extraer_url(url: str) -> Extraccion:
+    """Lee una norma desde su página en busquedas.elperuano.pe (scraping de una página pública)."""
+    import requests
+    if "elperuano.pe" not in url:
+        raise ValueError("Pega un enlace de busquedas.elperuano.pe.")
+    r = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0 (Plazia; proyecto academico)"})
+    r.raise_for_status()
+    texto = html_a_texto(r.text)
+    if len(texto) < 500:
+        raise ValueError("La página no trajo el texto de la norma. Descarga el PDF desde El Peruano y súbelo.")
+    return extraer_texto(texto, 1)

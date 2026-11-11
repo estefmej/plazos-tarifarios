@@ -31,7 +31,7 @@ Cubro producto, ingeniería, diseño y ventas. La IA (Claude) me ayudó a progra
 ## 4. Solución e insight
 
 Una app donde subes la resolución publicada en El Peruano y:
-1. La **IA lee el PDF** y extrae la EPS, el número, la fecha de emisión y la fecha de publicación, mostrando la cita y la página de donde sacó cada dato.
+1. La **IA lee el PDF o el enlace de la norma en El Peruano** y extrae la EPS, el número, la fecha de emisión y la fecha de publicación, mostrando la cita y la página de donde sacó cada dato.
 2. Una persona **revisa y confirma**.
 3. Un **motor de reglas** calcula el cronograma completo en días hábiles, con feriados y ampliaciones.
 4. Con la **resolución que aprueba el estudio tarifario**, la IA extrae el periodo regulatorio y el motor calcula sus hitos legales: la Sunass comunica el siguiente periodo como máximo **19 meses antes del término** (art. 12.1 y 38.2 del Reglamento General de Tarifas) y la EPS presenta su solicitud a más tardar **10 meses antes** (art. 38.1). El inicio del periodo se calcula con la regla que corresponda: primer día del mes siguiente a la publicación (regla anterior) o primer día del año fiscal siguiente (regla actual).
@@ -98,6 +98,7 @@ flowchart LR
 |---|---|
 | **Document AI con salidas estructuradas** | `ai/extraer_resolucion.py`, `ai/prompts/extraccion.md` |
 | **Agentes** (con herramientas) | `ai/asistente.py`, `ai/llm.py` (función `conversar`) |
+| **Scraping** de El Peruano (pegar el enlace de la norma) | `ai/extraer_resolucion.py` (funciones `extraer_url` y `html_a_texto`) |
 | **Mapas** | `app/app.py` (función `mapa`), `data/geo/peru_departamentos.geojson` |
 | **Sitio web** | `app/app.py`, publicado en Streamlit Community Cloud |
 

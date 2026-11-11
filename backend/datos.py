@@ -43,6 +43,12 @@ CREATE TABLE IF NOT EXISTS periodos (
 """
 
 
+# EPS con periodo real recién iniciado: se les quita el procedimiento de demostración.
+SIN_PROCEDIMIENTO_DEMO = {"maranon", "emapisco", "sanmartin", "juliaca", "pasco"}
+# EPS que se registran EN VIVO en el demo (pegando su enlace de El Peruano): empiezan sin periodo ni procedimiento.
+DEMO_EN_VIVO = {"epsel", "sedacaj"}
+
+
 def normalizar(texto: str) -> str:
     t = unicodedata.normalize("NFD", str(texto or ""))
     return "".join(c for c in t if unicodedata.category(c) != "Mn").lower().strip()
@@ -64,7 +70,8 @@ def iniciar(forzar_demo: bool = False) -> None:
     with conexion() as con:
         con.executescript(ESQUEMA)
         vacia = con.execute("SELECT COUNT(*) FROM eps").fetchone()[0] == 0 \
-            or con.execute("SELECT COUNT(*) FROM periodos").fetchone()[0] == 0
+            or con.execute("SELECT COUNT(*) FROM periodos").fetchone()[0] == 0 \
+            or con.execute("SELECT COUNT(*) FROM periodos WHERE fuente='el_peruano'").fetchone()[0] == 0
         if not (vacia or forzar_demo):
             return
         con.executescript("DELETE FROM eventos; DELETE FROM procedimientos; DELETE FROM periodos; DELETE FROM eps;")
@@ -87,6 +94,27 @@ def iniciar(forzar_demo: bool = False) -> None:
                 "INSERT INTO periodos (eps_id,resolucion,fecha_publicacion,inicio,anios,fuente) "
                 "VALUES (:eps_id,:resolucion,:fecha_publicacion,:inicio,:anios,:fuente)",
                 list(csv.DictReader(f)))
+        for eps_id in DEMO_EN_VIVO:
+            con.execute("DELETE FROM periodos WHERE eps_id=?", (eps_id,))
+            for pr in con.execute("SELECT id FROM procedimientos WHERE eps_id=?", (eps_id,)).fetchall():
+                con.execute("DELETE FROM eventos WHERE procedimiento_id=?", (pr["id"],))
+                con.execute("DELETE FROM procedimientos WHERE id=?", (pr["id"],))
+        # Periodos REALES tomados de resoluciones publicadas en El Peruano: reemplazan a los de demostración.
+        with open(DATA / "periodos_el_peruano.csv", encoding="utf-8") as f:
+            reales = list(csv.DictReader(f))
+        for r in reales:
+            con.execute("DELETE FROM periodos WHERE eps_id=?", (r["eps_id"],))
+            con.execute(
+                "INSERT INTO periodos (eps_id,resolucion,fecha_publicacion,inicio,anios,fuente,archivo,nota) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (r["eps_id"], r["resolucion"], r["fecha_publicacion"], r["inicio"], int(r["anios"]),
+                 "el_peruano", r["url"], r["nota"]))
+            if r["eps_id"] in SIN_PROCEDIMIENTO_DEMO:
+                # Su tarifa se aprobó hace poco: un procedimiento de demostración en curso sería contradictorio.
+                for pr in con.execute("SELECT id FROM procedimientos WHERE eps_id=? AND fuente='demo'",
+                                      (r["eps_id"],)).fetchall():
+                    con.execute("DELETE FROM eventos WHERE procedimiento_id=?", (pr["id"],))
+                    con.execute("DELETE FROM procedimientos WHERE id=?", (pr["id"],))
 
 
 # ---------- lectura ----------
@@ -212,6 +240,8 @@ def eventos_de_proc(proc_id: str) -> list[P.Evento]:
 
 def registrar_periodo(eps_id: str, resolucion: str, fecha_publicacion: date | None, inicio: date, anios: int,
                       archivo: str = "", nota: str = "") -> None:
+    if not 3 <= int(anios) <= 5:
+        raise ValueError("El periodo regulatorio solo puede durar 3, 4 o 5 años.")
     """Registra el periodo aprobado por una resolución real. Reemplaza el periodo de demostración de esa EPS."""
     with conexion() as con:
         con.execute("DELETE FROM periodos WHERE eps_id=? AND fuente='demo'", (eps_id,))

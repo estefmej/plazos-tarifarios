@@ -51,3 +51,21 @@ def test_lector_basico_aprobacion():
     assert x.datos["regla_inicio_periodo"] == "anio_fiscal_siguiente"
     assert x.datos["fecha_publicacion_el_peruano"] == "2026-12-15"
     assert x.eps_id == "huacho"
+
+
+def test_pagina_el_peruano_fecha_y_duracion():
+    html = """<html><body><div>Fecha de publicación: 06/10/2024</div>
+    <h1>Aprueban fórmula tarifaria ... que se aplican a EPSEL S.A. para el periodo regulatorio 2025-2028</h1>
+    <p>Lima, 4 de octubre de 2024</p>
+    <p>Artículo 1.- Aprobar la fórmula tarifaria, estructura tarifaria y metas de gestión ... EPSEL S.A.
+    para el periodo regulatorio 2025-2028</p>
+    <p>Artículo 5.- El inicio del periodo regulatorio será computado a partir del primer día del año fiscal
+    siguiente a la publicación de la presente resolución tarifaria.</p>
+    <p>contiene la propuesta aplicable a EPSEL S.A. para un periodo regulatorio de 4 años (2025-2028).</p>
+    </body></html>"""
+    x = X.extraer_texto(X.html_a_texto(html))
+    assert x.datos["fecha_publicacion_el_peruano"] == "2024-10-06"
+    assert x.datos["tipo"] == "aprobacion_final"
+    assert x.datos["duracion_anios"] == 4
+    assert x.datos["regla_inicio_periodo"] == "anio_fiscal_siguiente"
+    assert x.eps_id == "epsel"
