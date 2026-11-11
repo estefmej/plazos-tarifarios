@@ -41,3 +41,13 @@ def test_con_ia_simulada(monkeypatch):
 
 def test_json_tolerante():
     assert llm._json_tolerante('Aquí va:\n```json\n{"a": 1}\n```') == {"a": 1}
+
+
+def test_lector_basico_aprobacion():
+    x = X.extraer((FIX / "resolucion_ficticia_aprobacion.pdf").read_bytes())
+    assert x.datos["tipo"] == "aprobacion_final"
+    assert x.datos["periodo_anio_inicio"] == 2027 and x.datos["periodo_anio_fin"] == 2031
+    assert x.datos["duracion_anios"] == 5
+    assert x.datos["regla_inicio_periodo"] == "anio_fiscal_siguiente"
+    assert x.datos["fecha_publicacion_el_peruano"] == "2026-12-15"
+    assert x.eps_id == "huacho"

@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from pathlib import Path
 
+from backend import periodos as R
 from backend import plazos as P
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -34,6 +35,10 @@ CREATE TABLE IF NOT EXISTS eventos (
   id INTEGER PRIMARY KEY AUTOINCREMENT, procedimiento_id TEXT REFERENCES procedimientos(id),
   tipo TEXT, etapa_id TEXT, dias INTEGER, fecha TEXT, resolucion TEXT, nota TEXT,
   fuente TEXT DEFAULT 'demo', creado TEXT
+);
+CREATE TABLE IF NOT EXISTS periodos (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, eps_id TEXT REFERENCES eps(id), resolucion TEXT,
+  fecha_publicacion TEXT, inicio TEXT, anios INTEGER, fuente TEXT, archivo TEXT, nota TEXT, creado TEXT
 );
 """
 
@@ -58,10 +63,11 @@ def iniciar(forzar_demo: bool = False) -> None:
     """Crea la base y la llena con los datos de demostración si está vacía."""
     with conexion() as con:
         con.executescript(ESQUEMA)
-        vacia = con.execute("SELECT COUNT(*) FROM eps").fetchone()[0] == 0
+        vacia = con.execute("SELECT COUNT(*) FROM eps").fetchone()[0] == 0 \
+            or con.execute("SELECT COUNT(*) FROM periodos").fetchone()[0] == 0
         if not (vacia or forzar_demo):
             return
-        con.executescript("DELETE FROM eventos; DELETE FROM procedimientos; DELETE FROM eps;")
+        con.executescript("DELETE FROM eventos; DELETE FROM procedimientos; DELETE FROM periodos; DELETE FROM eps;")
         with open(DATA / "eps.csv", encoding="utf-8") as f:
             con.executemany(
                 "INSERT INTO eps VALUES (:id,:nombre,:ciudad,:departamento,:lat,:lon,:conexiones)",
@@ -76,17 +82,24 @@ def iniciar(forzar_demo: bool = False) -> None:
                 "INSERT INTO eventos (procedimiento_id,tipo,etapa_id,dias,fecha,resolucion,nota) "
                 "VALUES (:procedimiento_id,:tipo,:etapa_id,:dias,:fecha,:resolucion,:nota)",
                 list(csv.DictReader(f)))
+        with open(DATA / "periodos_demo.csv", encoding="utf-8") as f:
+            con.executemany(
+                "INSERT INTO periodos (eps_id,resolucion,fecha_publicacion,inicio,anios,fuente) "
+                "VALUES (:eps_id,:resolucion,:fecha_publicacion,:inicio,:anios,:fuente)",
+                list(csv.DictReader(f)))
 
 
 # ---------- lectura ----------
 
 @dataclass
 class Fila:
-    """Una EPS con su procedimiento vigente (si tiene) y su estado a una fecha."""
+    """Una EPS con su procedimiento y su periodo regulatorio vigentes, y su estado a una fecha."""
     eps: dict
     proc: dict | None
     eventos: list[P.Evento]
     estado: P.Estado
+    periodo: dict | None = None
+    estado_periodo: R.EstadoPeriodo | None = None
 
 
 def _a_fecha(s: str | None) -> date | None:
@@ -105,6 +118,18 @@ def procedimiento_vigente(con, eps_id: str) -> dict | None:
     return dict(r) if r else None
 
 
+def periodo_vigente(con, eps_id: str, hoy: date | None = None) -> dict | None:
+    """El periodo más reciente que ya empezó (o el más próximo, si ninguno empezó)."""
+    filas = [dict(r) for r in con.execute("SELECT * FROM periodos WHERE eps_id=? ORDER BY inicio DESC", (eps_id,))]
+    if not filas:
+        return None
+    if hoy:
+        iniciados = [f for f in filas if f["inicio"] <= hoy.isoformat()]
+        if iniciados:
+            return iniciados[0]
+    return filas[-1]
+
+
 def eventos_de(con, proc_id: str) -> list[P.Evento]:
     filas = con.execute("SELECT * FROM eventos WHERE procedimiento_id=? ORDER BY id", (proc_id,))
     return [P.Evento(r["tipo"], r["etapa_id"], int(r["dias"] or 0), _a_fecha(r["fecha"]), r["resolucion"] or "")
@@ -120,7 +145,12 @@ def tablero(hoy: date) -> list[Fila]:
             proc = procedimiento_vigente(con, e["id"])
             evs = eventos_de(con, proc["id"]) if proc else []
             est = P.estado(_a_fecha(proc["fecha_publicacion"]) if proc else None, evs, hoy)
-            salida.append(Fila(e, proc, evs, est))
+            per = periodo_vigente(con, e["id"], hoy)
+            ini = _a_fecha(per["inicio"]) if per else None
+            # La EPS ya solicitó la revisión si tiene un procedimiento en curso iniciado durante este periodo.
+            solicito = bool(proc and ini and est.actual is not None and proc["fecha_publicacion"] >= per["inicio"])
+            est_per = R.estado(ini, per["anios"] if per else None, hoy, solicito)
+            salida.append(Fila(e, proc, evs, est, per, est_per))
     return salida
 
 
@@ -178,3 +208,15 @@ def procedimiento_de_eps(eps_id: str) -> dict | None:
 def eventos_de_proc(proc_id: str) -> list[P.Evento]:
     with conexion() as con:
         return eventos_de(con, proc_id)
+
+
+def registrar_periodo(eps_id: str, resolucion: str, fecha_publicacion: date | None, inicio: date, anios: int,
+                      archivo: str = "", nota: str = "") -> None:
+    """Registra el periodo aprobado por una resolución real. Reemplaza el periodo de demostración de esa EPS."""
+    with conexion() as con:
+        con.execute("DELETE FROM periodos WHERE eps_id=? AND fuente='demo'", (eps_id,))
+        con.execute(
+            "INSERT INTO periodos (eps_id,resolucion,fecha_publicacion,inicio,anios,fuente,archivo,nota,creado) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (eps_id, resolucion, fecha_publicacion.isoformat() if fecha_publicacion else "", inicio.isoformat(),
+             int(anios), "pdf", archivo, nota, _ahora()))

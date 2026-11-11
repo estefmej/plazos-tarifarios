@@ -1,0 +1,23 @@
+# Periodo regulatorio y plazos que se cuentan HACIA ATRÁS desde su término.
+# Fuente: Reglamento General de Tarifas (RCD N.° 028-2021-SUNASS-CD) y sus modificaciones.
+# Verificar con la versión vigente del reglamento.
+
+inicio_periodo:
+  # Desde esta fecha de publicación se aplica el inicio por año fiscal.
+  # VERIFICAR la fecha exacta de la modificación del reglamento (2024).
+  fecha_de_cambio: 2024-01-01
+  antes: mes_siguiente          # primer día del mes calendario siguiente a la publicación
+  despues: anio_fiscal_siguiente  # primer día del año fiscal siguiente a la publicación
+
+hitos:
+  - id: comunicacion_sunass
+    nombre: La Sunass comunica el siguiente periodo y la fecha máxima de solicitud
+    meses_antes_del_termino: 19
+    base: Reglamento General de Tarifas, art. 12.1 y art. 38.2
+  - id: solicitud_eps
+    nombre: La EPS presenta la solicitud de revisión periódica
+    meses_antes_del_termino: 10
+    base: Reglamento General de Tarifas, art. 38.1
+
+semaforo:
+  por_vencer_dias: 90   # ámbar si el próximo hito llega en 90 días calendario o menos

@@ -37,15 +37,18 @@ from ai import llm  # noqa: E402
 from ai.asistente import Asistente  # noqa: E402
 from ai.extraer_resolucion import extraer  # noqa: E402
 from backend import datos as D  # noqa: E402
+from backend import periodos as R  # noqa: E402
 from backend import plazos as P  # noqa: E402
 
 COLORES = {"rojo": "#B8432F", "ambar": "#C98A12", "verde": "#2F8A5B", "fin": "#5E7F94", "sin": "#AEBBC1"}
 ETIQUETAS = {"rojo": "Vencido", "ambar": "Por vencer", "verde": "A tiempo", "fin": "Concluido", "sin": "Sin procedimiento"}
+ETIQUETAS_PER = {"rojo": "Solicitud no presentada", "ambar": "Hito próximo", "verde": "En curso",
+                 "fin": "En revisión o terminado", "sin": "Sin periodo"}
 PESO = {"rojo": 0, "ambar": 1, "verde": 2, "fin": 3, "sin": 4}
 MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "set", "oct", "nov", "dic"]
 TIPOS = {"inicio_revision_periodica": "Inicio de revisión periódica", "ampliacion_plazo": "Ampliación de plazo",
          "suspension_plazo": "Suspensión de plazo", "aprobacion_proyecto": "Aprobación del proyecto",
-         "aprobacion_final": "Aprobación final", "otro": "Otro"}
+         "aprobacion_final": "Aprobación del estudio tarifario (periodo regulatorio)", "otro": "Otro"}
 
 D.iniciar()
 st.session_state.setdefault("sel", None)
@@ -96,8 +99,8 @@ base = [f for f in filas if dep == "Todo el Perú" or f.eps["departamento"] == d
 for col, (c, t) in zip(cols, ETIQUETAS.items()):
     col.metric(t, sum(f.estado.clase == c for f in base))
 
-tab_tab, tab_linea, tab_pdf, tab_chat, tab_equipo = st.tabs(
-    ["Tablero", "Línea de tiempo", "Registrar resolución", "Asistente", "Equipo"])
+tab_tab, tab_per, tab_linea, tab_pdf, tab_chat, tab_equipo = st.tabs(
+    ["Tablero", "Periodo regulatorio", "Línea de tiempo", "Registrar resolución", "Asistente", "Equipo"])
 
 
 # ---------------- utilidades de vista ----------------
@@ -124,6 +127,7 @@ def mostrar_eps(f: D.Fila, clave: str) -> None:
         linea = f"<br><b>{e.nombre}</b> · límite {fmt(e.limite)} · {dias_txt(est.dias_restantes)}"
     st.markdown(f"<div style='border-left:6px solid {color};padding:8px 12px;background:{color}18'>"
                 f"<b style='color:{color}'>{est.texto}</b>{linea}</div>", unsafe_allow_html=True)
+    mostrar_periodo(f)
     if not f.proc:
         st.info("Esta EPS no tiene procedimiento registrado. Súbelo en la pestaña «Registrar resolución».")
         return
@@ -143,6 +147,27 @@ def mostrar_eps(f: D.Fila, clave: str) -> None:
                 st.rerun()
 
 
+def tabla_hitos(ep: R.EstadoPeriodo) -> pd.DataFrame:
+    filas_h = [{"Hito": "Inicio del periodo regulatorio", "Fecha": fmt(ep.inicio), "Base": "Resolución de aprobación",
+                "Situación": "Cumplido"}]
+    for h in ep.hitos:
+        filas_h.append({"Hito": h.nombre, "Fecha": fmt(h.fecha), "Base": h.base,
+                        "Situación": "Cumplido" if h.cumplido else ("Próximo" if ep.proximo and h.id == ep.proximo.id
+                                                                     else "Pendiente")})
+    filas_h.append({"Hito": "Término del periodo regulatorio", "Fecha": fmt(ep.termino), "Base": "inicio + duración",
+                    "Situación": "Cumplido" if ep.texto == "Periodo terminado" else "Pendiente"})
+    return pd.DataFrame(filas_h)
+
+
+def mostrar_periodo(f: D.Fila) -> None:
+    ep, per = f.estado_periodo, f.periodo
+    if not per or not ep or not ep.inicio:
+        return
+    with st.expander(f"Periodo regulatorio: {fmt(ep.inicio)} – {fmt(ep.termino)} · {ep.texto}", expanded=False):
+        st.write(f"Aprobado por **{per['resolucion']}** · {per['anios']} años · fuente: `{per['fuente']}`")
+        st.dataframe(tabla_hitos(ep), hide_index=True, use_container_width=True)
+
+
 # ---------------- pestaña: tablero ----------------
 @st.cache_data
 def geojson() -> dict:
@@ -152,7 +177,23 @@ def geojson() -> dict:
     return g
 
 
-def mapa(filas_mapa: list[D.Fila], todas: list[D.Fila]) -> go.Figure:
+def tip_mapa(f: D.Fila, modo: str) -> str:
+    base = f"<b>{f.eps['nombre']}</b> · {f.eps['ciudad']}<br>"
+    if modo == "per":
+        ep = f.estado_periodo
+        s = base + ep.texto
+        if ep.inicio:
+            s += f"<br>Periodo {fmt(ep.inicio)} – {fmt(ep.termino)}"
+        if ep.proximo:
+            s += f"<br>{ep.proximo.nombre}: {fmt(ep.proximo.fecha)}"
+        return s
+    s = base + f.estado.texto
+    if f.estado.actual is not None:
+        s += f"<br>{f.estado.etapas[f.estado.actual].nombre}<br>{dias_txt(f.estado.dias_restantes)}"
+    return s
+
+
+def mapa(filas_mapa: list[D.Fila], todas: list[D.Fila], modo: str = "proc") -> go.Figure:
     """Mapa del Perú con Plotly (sin mosaicos externos, funciona sin conexión)."""
     g = geojson()
     fig = go.Figure()
@@ -160,11 +201,13 @@ def mapa(filas_mapa: list[D.Fila], todas: list[D.Fila]) -> go.Figure:
     fig.add_trace(go.Choropleth(geojson=g, locations=todos, z=[0] * len(todos), showscale=False,
                                 colorscale=[[0, "#EEF2F3"], [1, "#EEF2F3"]], marker_line_color="white",
                                 marker_line_width=0.8, hoverinfo="skip", showlegend=False))
+    clase = (lambda f: f.estado_periodo.clase) if modo == "per" else (lambda f: f.estado.clase)
+    etiquetas = ETIQUETAS_PER if modo == "per" else ETIQUETAS
     peor: dict[str, str] = {}
     for f in todas:
         k = D.normalizar(f.eps["departamento"])
-        if k not in peor or PESO[f.estado.clase] < PESO[peor[k]]:
-            peor[k] = f.estado.clase
+        if k not in peor or PESO[clase(f)] < PESO[peor[k]]:
+            peor[k] = clase(f)
     for c in ("rojo", "ambar", "verde", "fin"):
         ids = [k for k, v in peor.items() if v == c]
         if ids:
@@ -173,17 +216,15 @@ def mapa(filas_mapa: list[D.Fila], todas: list[D.Fila]) -> go.Figure:
                 showscale=False, marker_opacity=0.25, marker_line_color="white", marker_line_width=0.8,
                 hoverinfo="skip", showlegend=False))
     for c in ("sin", "fin", "verde", "ambar", "rojo"):
-        xs = [f for f in filas_mapa if f.estado.clase == c]
+        xs = [f for f in filas_mapa if clase(f) == c]
         if not xs:
             continue
         fig.add_trace(go.Scattergeo(
             lat=[f.eps["lat"] for f in xs], lon=[f.eps["lon"] for f in xs], mode="markers",
             marker=dict(size=[max(8, min(26, (f.eps["conexiones"] or 1) ** 0.5 / 45)) for f in xs],
                         color=COLORES[c], line=dict(color="white", width=1)),
-            customdata=[f.eps["id"] for f in xs], name=ETIQUETAS[c],
-            text=[f"<b>{f.eps['nombre']}</b> · {f.eps['ciudad']}<br>{f.estado.texto}" +
-                  (f"<br>{f.estado.etapas[f.estado.actual].nombre}<br>{dias_txt(f.estado.dias_restantes)}"
-                   if f.estado.actual is not None else "") for f in xs],
+            customdata=[f.eps["id"] for f in xs], name=etiquetas[c],
+            text=[tip_mapa(f, modo) for f in xs],
             hovertemplate="%{text}<extra></extra>"))
     fig.update_geos(fitbounds="locations", visible=False, projection_type="mercator")
     fig.update_layout(height=680, margin=dict(l=0, r=0, t=0, b=0), paper_bgcolor="rgba(0,0,0,0)",
@@ -194,7 +235,10 @@ def mapa(filas_mapa: list[D.Fila], todas: list[D.Fila]) -> go.Figure:
 with tab_tab:
     izq, der = st.columns([1.25, 1])
     with izq:
-        ev = st.plotly_chart(mapa(vis, filas), use_container_width=True, on_select="rerun",
+        modo_mapa = st.radio("Colorear el mapa por", ["Procedimiento en curso", "Periodo regulatorio"],
+                             horizontal=True, label_visibility="collapsed")
+        modo = "per" if modo_mapa == "Periodo regulatorio" else "proc"
+        ev = st.plotly_chart(mapa(vis, filas, modo), use_container_width=True, on_select="rerun",
                              selection_mode="points", key="mapa")
         puntos = (ev or {}).get("selection", {}).get("points", []) if isinstance(ev, dict) else \
             getattr(getattr(ev, "selection", None), "points", [])
@@ -225,6 +269,57 @@ with tab_tab:
     if sel:
         st.session_state.sel = sel
         mostrar_eps(next(f for f in filas if f.eps["id"] == sel), "tablero")
+
+
+# ---------------- pestaña: periodo regulatorio ----------------
+with tab_per:
+    st.caption("Plazos que se cuentan hacia atrás desde el término del periodo regulatorio: la Sunass comunica el "
+               "siguiente periodo como máximo 19 meses antes (art. 12.1 y 38.2 del Reglamento General de Tarifas) y "
+               "la EPS presenta su solicitud a más tardar 10 meses antes (art. 38.1). Reglas en `data/reglas/periodo.yaml`.")
+    cols_p = st.columns(5)
+    for col, (c, txt) in zip(cols_p, ETIQUETAS_PER.items()):
+        col.metric(txt, sum(f.estado_periodo.clase == c for f in base))
+    xs = sorted([f for f in vis if f.estado_periodo and f.estado_periodo.inicio],
+                key=lambda f: (PESO[f.estado_periodo.clase], f.estado_periodo.dias if f.estado_periodo.dias is not None
+                               else 99999))
+    if not xs:
+        st.info("No hay periodos con estos filtros.")
+    else:
+        def hito(f, hid):
+            h = next((h for h in f.estado_periodo.hitos if h.id == hid), None)
+            return fmt(h.fecha) if h else ""
+        dfp = pd.DataFrame([{
+            "": {"rojo": "🔴", "ambar": "🟠", "verde": "🟢", "fin": "🔵", "sin": "⚪"}[f.estado_periodo.clase],
+            "EPS": f.eps["nombre"], "Departamento": f.eps["departamento"],
+            "Periodo": f"{f.estado_periodo.inicio.year}–{f.estado_periodo.termino.year}",
+            "Estado": f.estado_periodo.texto,
+            "Sunass comunica (19 m)": hito(f, "comunicacion_sunass"),
+            "EPS solicita (10 m)": hito(f, "solicitud_eps"),
+            "Término": fmt(f.estado_periodo.termino),
+            "Resolución": f.periodo["resolucion"], "Fuente": f.periodo["fuente"],
+        } for f in xs])
+        st.dataframe(dfp, hide_index=True, use_container_width=True, height=420)
+
+        gp = go.Figure()
+        nombres_p = [f"{f.eps['nombre']} · {f.eps['departamento']}" for f in xs]
+        gp.add_trace(go.Bar(
+            y=nombres_p, x=[(f.estado_periodo.termino - f.estado_periodo.inicio).days * 86400000 for f in xs],
+            base=[f.estado_periodo.inicio.isoformat() for f in xs], orientation="h",
+            marker_color=[COLORES[f.estado_periodo.clase] for f in xs], opacity=0.35, name="Periodo regulatorio",
+            hovertext=[f"{fmt(f.estado_periodo.inicio)} – {fmt(f.estado_periodo.termino)}" for f in xs],
+            hoverinfo="text+y"))
+        for hid, simbolo, nombre in (("comunicacion_sunass", "diamond", "Sunass comunica (19 m)"),
+                                     ("solicitud_eps", "triangle-up", "EPS solicita (10 m)")):
+            pts = [(n, next(h for h in f.estado_periodo.hitos if h.id == hid)) for n, f in zip(nombres_p, xs)]
+            gp.add_trace(go.Scatter(y=[n for n, _ in pts], x=[h.fecha for _, h in pts], mode="markers", name=nombre,
+                                    marker=dict(symbol=simbolo, size=11, color="#172A33"),
+                                    hovertext=[f"{nombre}: {fmt(h.fecha)}" for _, h in pts], hoverinfo="text"))
+        gp.add_shape(type="line", x0=hoy, x1=hoy, y0=0, y1=1, yref="paper", line=dict(color="#B8432F", dash="dash"))
+        gp.add_annotation(x=hoy, y=1.02, yref="paper", text="Hoy", showarrow=False, font=dict(color="#B8432F"))
+        gp.update_layout(barmode="overlay", xaxis_type="date", height=max(420, 26 * len(xs) + 120),
+                         margin=dict(l=0, r=0, t=30, b=0), legend=dict(orientation="h", y=-0.08))
+        gp.update_yaxes(autorange="reversed")
+        st.plotly_chart(gp, use_container_width=True)
 
 
 # ---------------- pestaña: línea de tiempo ----------------
@@ -356,6 +451,38 @@ with tab_pdf:
                     del st.session_state.extraccion
                     st.success("Cronograma actualizado.")
                     st.rerun()
+        elif tipo == "aprobacion_final":
+            if not f_pub:
+                st.error("Ingresa la fecha de publicación en El Peruano para calcular el periodo.")
+            else:
+                regla_doc = d.get("regla_inicio_periodo")
+                regla = regla_doc or R.regla_inicio(f_pub)
+                if regla == "anio_fiscal_siguiente":
+                    ini_calc, expl = date(f_pub.year + 1, 1, 1), "primer día del año fiscal siguiente a la publicación"
+                else:
+                    ini_calc, expl = R.sumar_meses(f_pub.replace(day=1), 1), \
+                        "primer día del mes calendario siguiente a la publicación"
+                origen = "lo dice la propia resolución" if regla_doc else "regla del reglamento según la fecha de publicación"
+                r1, r2 = st.columns(2)
+                inicio_p = r1.date_input("Inicio del periodo regulatorio", value=ini_calc, format="DD/MM/YYYY")
+                r1.caption(f"Calculado como {expl} ({origen}).")
+                anios_p = r2.number_input("Duración (años)", min_value=1, max_value=10,
+                                          value=int(d.get("duracion_anios") or 5))
+                if d.get("periodo_anio_inicio"):
+                    r2.caption(f"La resolución menciona el periodo {d['periodo_anio_inicio']}–"
+                               f"{d.get('periodo_anio_fin') or '?'}.")
+                    if d["periodo_anio_inicio"] != inicio_p.year:
+                        st.warning(f"El año de inicio que dice la resolución ({d['periodo_anio_inicio']}) no coincide "
+                                   f"con el calculado ({inicio_p.year}). Revísalo antes de guardar.")
+                ep_prev = R.estado(inicio_p, int(anios_p), hoy)
+                st.write(f"**Periodo regulatorio:** {fmt(ep_prev.inicio)} – {fmt(ep_prev.termino)}")
+                st.dataframe(tabla_hitos(ep_prev), hide_index=True, use_container_width=True)
+                if st.button("Guardar periodo regulatorio", type="primary"):
+                    D.registrar_periodo(eps_id, numero, f_pub, inicio_p, int(anios_p), nombre_pdf, expl)
+                    st.session_state.sel = eps_id
+                    del st.session_state.extraccion
+                    st.success("Periodo registrado. Revísalo en la pestaña «Periodo regulatorio».")
+                    st.rerun()
         else:
             st.info("Este tipo de resolución todavía no cambia el cronograma automáticamente. "
                     "Puedes marcar la etapa como cumplida desde el detalle de la EPS.")
@@ -366,7 +493,8 @@ with tab_chat:
     sel_nombre = next((f.eps["nombre"] for f in filas if f.eps["id"] == st.session_state.sel), None)
     st.caption(f"Responde consultando el motor de plazos. EPS seleccionada: **{sel_nombre or 'ninguna'}**.")
     sugerencias = [f"¿Cuáles son los plazos de {sel_nombre}?" if sel_nombre else "¿Qué plazos tiene SEDAPAL?",
-                   "¿Qué vence en los próximos 10 días hábiles?", "¿Qué EPS hay en Lima y cómo van?",
+                   "¿Qué vence en los próximos 10 días hábiles?",
+                   "¿Qué EPS no presentaron su solicitud a tiempo?",
                    "¿Qué subgerencia tiene más plazos vencidos?"]
     cs = st.columns(len(sugerencias))
     pregunta = None

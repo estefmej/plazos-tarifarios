@@ -40,6 +40,7 @@ Se cambia con `LLM_PROVIDER` y `LLM_MODEL` en `.env`. Las resoluciones son públ
 | `ai/asistente.py` | Agente con herramientas sobre el motor de plazos |
 | `ai/llm.py` | Capa común para Claude y Gemini |
 | `backend/plazos.py` | Motor de plazos en días hábiles |
+| `backend/periodos.py` | Periodo regulatorio: inicio, término e hitos de 19 y 10 meses |
 | `backend/datos.py` | Base de datos SQLite |
-| `data/reglas/` | Etapas, plazos y feriados (editables sin tocar código) |
+| `data/reglas/` | Etapas, plazos, feriados y reglas del periodo regulatorio (editables sin tocar código) |
 | `tests/` | Pruebas del motor, la extracción y el agente |

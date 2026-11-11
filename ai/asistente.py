@@ -21,6 +21,10 @@ Reglas:
 - Si dicen "esta EPS", "la seleccionada" o no nombran ninguna, usa la EPS seleccionada.
 - Para lo que vence pronto usa vencimientos; para un departamento usa eps_por_departamento
   (un departamento puede tener varias EPS); para la carga del equipo usa carga_equipo.
+- Para el periodo regulatorio (inicio, término y los hitos de 19 y 10 meses antes del término) usa periodo_eps;
+  para saber qué EPS tienen hitos próximos o no presentaron su solicitud usa hitos_periodo.
+  Base legal: la Sunass comunica el siguiente periodo como máximo 19 meses antes del término (art. 12.1 y 38.2 del
+  Reglamento General de Tarifas) y la EPS presenta su solicitud a más tardar 10 meses antes (art. 38.1).
 - Indica si un dato viene de datos de demostración (fuente "demo") o de una resolución real (fuente "pdf").
 - Si una herramienta no devuelve algo, dilo; no inventes."""
 
@@ -87,6 +91,30 @@ class Asistente:
                 c["por_vencer"] += 1
         return sorted(carga.values(), key=lambda c: (-c["vencidos"], -c["por_vencer"]))
 
+    def periodo_eps(self, eps_id: str) -> dict:
+        f = next((x for x in D.tablero(self.hoy) if x.eps["id"] == str(eps_id)), None)
+        if f is None:
+            raise ValueError(f"No existe la EPS con id '{eps_id}'. Usa buscar_eps primero.")
+        ep = f.estado_periodo
+        if not ep or not ep.inicio:
+            return {"nombre": f.eps["nombre"], "estado": "Sin periodo registrado"}
+        return {"nombre": f.eps["nombre"], "departamento": f.eps["departamento"], "estado": ep.texto,
+                "resolucion": f.periodo["resolucion"], "fuente": f.periodo["fuente"], "anios": f.periodo["anios"],
+                "inicio": ep.inicio.isoformat(), "termino": ep.termino.isoformat(),
+                "hitos": [{"hito": h.nombre, "fecha": h.fecha.isoformat(), "base": h.base, "cumplido": h.cumplido}
+                          for h in ep.hitos]}
+
+    def hitos_periodo(self, dias: int = 120) -> list[dict]:
+        salida = []
+        for f in D.tablero(self.hoy):
+            ep = f.estado_periodo
+            if ep and ep.clase in ("rojo", "ambar") or (ep and ep.dias is not None and 0 <= ep.dias <= int(dias)):
+                salida.append({"nombre": f.eps["nombre"], "departamento": f.eps["departamento"], "estado": ep.texto,
+                               "hito": ep.proximo.nombre if ep.proximo else None,
+                               "fecha": ep.proximo.fecha.isoformat() if ep.proximo else None,
+                               "dias_calendario": ep.dias, "termino_periodo": ep.termino.isoformat()})
+        return sorted(salida, key=lambda x: x["dias_calendario"] if x["dias_calendario"] is not None else 0)
+
     def herramientas(self) -> list[llm.Herramienta]:
         obj = lambda props, req: {"type": "object", "properties": props, "required": req}
         return [
@@ -102,6 +130,12 @@ class Asistente:
                                 ["dias_habiles"]), self.vencimientos),
             llm.Herramienta("eps_por_departamento", "Todas las EPS de un departamento con su estado y etapa actual.",
                             obj({"departamento": {"type": "string"}}, ["departamento"]), self.eps_por_departamento),
+            llm.Herramienta("periodo_eps", "Periodo regulatorio vigente de una EPS: resolución, inicio, término y los "
+                            "hitos de 19 y 10 meses antes del término, con su base legal.",
+                            obj({"eps_id": {"type": "string"}}, ["eps_id"]), self.periodo_eps),
+            llm.Herramienta("hitos_periodo", "EPS que no presentaron su solicitud a tiempo o que tienen un hito del "
+                            "periodo regulatorio (19 o 10 meses antes del término) dentro de N días calendario.",
+                            obj({"dias": {"type": "integer"}}, []), self.hitos_periodo),
             llm.Herramienta("carga_equipo", "Plazos en curso, por vencer y vencidos por subgerencia y responsable.",
                             obj({"dias_habiles": {"type": "integer"}}, []), self.carga_equipo),
         ]

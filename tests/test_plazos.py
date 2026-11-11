@@ -60,3 +60,36 @@ def test_etapa_cumplida_avanza():
 
 def test_sin_procedimiento():
     assert P.estado(None, [], date(2026, 11, 10)).clase == "sin"
+
+
+# ---------- periodo regulatorio ----------
+from backend import periodos as R  # noqa: E402
+
+
+def test_ejemplo_rcd_079_2021():
+    # Publicada el 26/12/2021 (regla anterior: mes siguiente) -> periodo 2022-2026
+    ini, _ = R.inicio_por_regla(date(2021, 12, 26))
+    assert ini == date(2022, 1, 1)
+    fin = R.termino(ini, 5)
+    assert fin == date(2026, 12, 31)
+    h = {x.id: x.fecha for x in R.hitos(fin)}
+    assert h["comunicacion_sunass"] == date(2025, 5, 31)   # 19 meses antes del término
+    assert h["solicitud_eps"] == date(2026, 2, 28)         # 10 meses antes del término
+
+
+def test_regla_anio_fiscal():
+    ini, _ = R.inicio_por_regla(date(2024, 12, 18))
+    assert ini == date(2025, 1, 1)
+
+
+def test_regla_mes_siguiente():
+    ini, _ = R.inicio_por_regla(date(2023, 8, 15))
+    assert ini == date(2023, 9, 1)
+    assert R.termino(ini, 5) == date(2028, 8, 31)
+
+
+def test_solicitud_no_presentada():
+    ep = R.estado(date(2022, 1, 1), 5, date(2026, 6, 1), solicitud_presentada=False)
+    assert ep.clase == "rojo"
+    ep2 = R.estado(date(2022, 1, 1), 5, date(2026, 6, 1), solicitud_presentada=True)
+    assert ep2.texto == "En revisión periódica"

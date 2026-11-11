@@ -114,6 +114,15 @@ def _limpiar(d: dict) -> tuple[dict, list[str]]:
         d["dias_habiles_adicionales"] = int(d.get("dias_habiles_adicionales") or 0) or None
     except (TypeError, ValueError):
         d["dias_habiles_adicionales"] = None
+    for campo in ("periodo_anio_inicio", "periodo_anio_fin", "duracion_anios"):
+        try:
+            d[campo] = int(d.get(campo)) if d.get(campo) not in (None, "") else None
+        except (TypeError, ValueError):
+            d[campo] = None
+    if not d.get("duracion_anios") and d.get("periodo_anio_inicio") and d.get("periodo_anio_fin"):
+        d["duracion_anios"] = d["periodo_anio_fin"] - d["periodo_anio_inicio"] + 1
+    if d.get("regla_inicio_periodo") not in ("anio_fiscal_siguiente", "mes_siguiente"):
+        d["regla_inicio_periodo"] = None
     if not d.get("fecha_publicacion_el_peruano"):
         avisos.append("No se encontró la fecha de publicación en El Peruano: ingrésala a mano antes de guardar.")
     if d.get("fecha_emision") and d.get("fecha_publicacion_el_peruano") \
@@ -126,20 +135,29 @@ def _limpiar(d: dict) -> tuple[dict, list[str]]:
 # ---------- lector básico (sin IA) ----------
 
 def extraer_basico(texto: str) -> dict:
-    t = normalizar(texto)
+    t = re.sub(r"\s+", " ", normalizar(texto))   # los PDF cortan las frases en varias líneas
     num = re.search(r"n\.?\s*[°º]?\s*(\d{2,4}-\d{4}-[a-z\-]+)", t)
     fechas = re.findall(r"\d{1,2}\s+de\s+[a-z]+\s+de(?:l)?\s+\d{4}", t)
     pub = re.search(r"publica\w*\s+(?:en\s+)?(?:el\s+)?(?:diario\s+oficial\s+)?el\s+peruano\D{0,40}?"
                     r"(\d{1,2}\s+de\s+[a-z]+\s+de(?:l)?\s+\d{4})", t)
     tipo = "otro"
-    if re.search(r"(inici\w+|da inicio).{0,120}(revision|procedimiento)", t):
+    if re.search(r"aprob\w+\s+(?:la\s+)?formula tarifaria", t):
+        tipo = "aprobacion_final"
+    elif re.search(r"(inici\w+|da inicio).{0,120}(revision|procedimiento)", t):
         tipo = "inicio_revision_periodica"
     elif "amplia" in t and "plazo" in t:
         tipo = "ampliacion_plazo"
     elif "suspend" in t and "plazo" in t:
         tipo = "suspension_plazo"
-    dias = re.search(r"(\d{1,3})\s+dias\s+habiles", t) if tipo != "inicio_revision_periodica" else None
+    dias = re.search(r"(\d{1,3})\s+dias\s+habiles", t) if tipo in ("ampliacion_plazo", "suspension_plazo") else None
+    per = re.search(r"periodo regulatorio\s+(\d{4})\s*[-–]\s*(\d{4})", t)
+    regla = ("anio_fiscal_siguiente" if "primer dia del ano fiscal siguiente" in t else
+             "mes_siguiente" if "primer dia del mes calendario siguiente" in t else None)
     return {
+        "periodo_anio_inicio": int(per.group(1)) if per else None,
+        "periodo_anio_fin": int(per.group(2)) if per else None,
+        "duracion_anios": None,
+        "regla_inicio_periodo": regla,
         "es_resolucion": "resolucion" in t,
         "tipo": tipo,
         "numero_resolucion": num.group(1).upper() if num else None,
