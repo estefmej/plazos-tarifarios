@@ -23,8 +23,10 @@ Reglas:
   (un departamento puede tener varias EPS); para la carga del equipo usa carga_equipo.
 - Para el periodo regulatorio (inicio, término y los hitos de 19 y 10 meses antes del término) usa periodo_eps;
   para saber qué EPS tienen hitos próximos o no presentaron su solicitud usa hitos_periodo.
-  Base legal: la Sunass comunica el siguiente periodo como máximo 19 meses antes del término (art. 12.1 y 38.2 del
-  Reglamento General de Tarifas) y la EPS presenta su solicitud a más tardar 10 meses antes (art. 38.1).
+  Base: según los artículos del Reglamento General de Tarifas, se debe comunicar a la EPS el siguiente periodo como
+  máximo 19 meses antes del término, y la EPS presenta su solicitud a más tardar 10 meses antes.
+- No menciones el nombre de ninguna institución reguladora ni números de artículos; di "el regulador" o
+  "los artículos del Reglamento General de Tarifas".
 - Indica si un dato viene de datos de demostración (fuente "demo") o de una resolución real (fuente "pdf").
 - Si una herramienta no devuelve algo, dilo; no inventes."""
 

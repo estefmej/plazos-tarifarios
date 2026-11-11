@@ -73,7 +73,7 @@ def test_ejemplo_rcd_079_2021():
     fin = R.termino(ini, 5)
     assert fin == date(2026, 12, 31)
     h = {x.id: x.fecha for x in R.hitos(fin)}
-    assert h["comunicacion_sunass"] == date(2025, 5, 31)   # 19 meses antes del término
+    assert h["comunicacion_eps"] == date(2025, 5, 31)   # 19 meses antes del término
     assert h["solicitud_eps"] == date(2026, 2, 28)         # 10 meses antes del término
 
 
@@ -99,7 +99,7 @@ def test_casos_reales_el_peruano():
     # EPSEL: RCD 00063-2024, publicada 06/10/2024, 4 años, año fiscal siguiente
     fin = R.termino(date(2025, 1, 1), 4)
     assert fin == date(2028, 12, 31)
-    assert {h.id: h.fecha for h in R.hitos(fin)}["comunicacion_sunass"] == date(2027, 5, 31)
+    assert {h.id: h.fecha for h in R.hitos(fin)}["comunicacion_eps"] == date(2027, 5, 31)
     # EPS Marañón: RCD 066-2023, publicada 05/11/2023, mes siguiente, "2023-2028" = 5 años
     ini, _ = R.inicio_por_regla(date(2023, 11, 5))
     assert ini == date(2023, 12, 1)

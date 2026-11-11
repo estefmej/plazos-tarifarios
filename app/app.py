@@ -120,6 +120,16 @@ def mostrar_eps(f: D.Fila, clave: str) -> None:
     est = f.estado
     st.subheader(f.eps["nombre"])
     st.caption(f"{f.eps['ciudad']}, {f.eps['departamento']}")
+    ep = f.estado_periodo
+    if not f.proc and ep and ep.inicio:
+        cp = COLORES[ep.clase]
+        prox = f"<br><b>Próximo hito:</b> {ep.proximo.nombre} · {fmt(ep.proximo.fecha)}" if ep.proximo else ""
+        st.markdown(f"<div style='border-left:6px solid {cp};padding:8px 12px;background:{cp}18'>"
+                    f"<b style='color:{cp}'>{ep.texto}</b><br>Periodo regulatorio {fmt(ep.inicio)} – "
+                    f"{fmt(ep.termino)}{prox}</div>", unsafe_allow_html=True)
+        mostrar_periodo(f, abierto=True)
+        st.caption("Sin procedimiento de revisión periódica en curso.")
+        return
     color = COLORES[est.clase]
     linea = ""
     if est.actual is not None:
@@ -159,12 +169,13 @@ def tabla_hitos(ep: R.EstadoPeriodo) -> pd.DataFrame:
     return pd.DataFrame(filas_h)
 
 
-def mostrar_periodo(f: D.Fila) -> None:
+def mostrar_periodo(f: D.Fila, abierto: bool = False) -> None:
     ep, per = f.estado_periodo, f.periodo
     if not per or not ep or not ep.inicio:
         return
-    with st.expander(f"Periodo regulatorio: {fmt(ep.inicio)} – {fmt(ep.termino)} · {ep.texto}", expanded=False):
-        st.write(f"Aprobado por **{per['resolucion']}** · {per['anios']} años · fuente: `{per['fuente']}`")
+    with st.expander(f"Periodo regulatorio: {fmt(ep.inicio)} – {fmt(ep.termino)} · {ep.texto}", expanded=abierto):
+        fuente_txt = {'el_peruano': 'El Peruano (precargado)', 'pdf': 'registrado desde la norma', 'demo': 'demo'}.get(per['fuente'], per['fuente'])
+        st.write(f"Aprobado por **{per['resolucion']}** · {per['anios']} años · {fuente_txt}")
         if per.get("archivo", "").startswith("http"):
             st.markdown(f"[Ver la norma en El Peruano]({per['archivo']})")
         if per.get("nota"):
@@ -241,8 +252,8 @@ def mapa(filas_mapa: list[D.Fila], todas: list[D.Fila], modo: str = "proc") -> g
 with tab_tab:
     izq, der = st.columns([1.25, 1])
     with izq:
-        modo_mapa = st.radio("Colorear el mapa por", ["Procedimiento en curso", "Periodo regulatorio"],
-                             horizontal=True, label_visibility="collapsed")
+        modo_mapa = st.radio("Colorear el mapa por", ["Periodo regulatorio", "Procedimiento en curso"],
+                             horizontal=True)
         modo = "per" if modo_mapa == "Periodo regulatorio" else "proc"
         ev = st.plotly_chart(mapa(vis, filas, modo), use_container_width=True, on_select="rerun",
                              selection_mode="points", key="mapa")
@@ -280,9 +291,9 @@ with tab_tab:
 # ---------------- pestaña: periodo regulatorio ----------------
 with tab_per:
     st.caption("Fuente «El Peruano (real)»: periodos tomados de resoluciones publicadas; «demo»: datos sintéticos.")
-    st.caption("Plazos que se cuentan hacia atrás desde el término del periodo regulatorio: la Sunass comunica el "
-               "siguiente periodo como máximo 19 meses antes (art. 12.1 y 38.2 del Reglamento General de Tarifas) y "
-               "la EPS presenta su solicitud a más tardar 10 meses antes (art. 38.1). Reglas en `data/reglas/periodo.yaml`.")
+    st.caption("Plazos que se cuentan hacia atrás desde el término del periodo regulatorio, según los artículos del "
+               "Reglamento General de Tarifas: se debe comunicar a la EPS el siguiente periodo como máximo 19 meses "
+               "antes, y la EPS presenta su solicitud a más tardar 10 meses antes. Reglas en `data/reglas/periodo.yaml`.")
     cols_p = st.columns(5)
     for col, (c, txt) in zip(cols_p, ETIQUETAS_PER.items()):
         col.metric(txt, sum(f.estado_periodo.clase == c for f in base))
@@ -300,12 +311,12 @@ with tab_per:
             "EPS": f.eps["nombre"], "Departamento": f.eps["departamento"],
             "Periodo": f"{f.estado_periodo.inicio.year}–{f.estado_periodo.termino.year}",
             "Estado": f.estado_periodo.texto,
-            "Sunass comunica (19 m)": hito(f, "comunicacion_sunass"),
+            "Comunicación a la EPS (19 m)": hito(f, "comunicacion_eps"),
             "EPS solicita (10 m)": hito(f, "solicitud_eps"),
             "Término": fmt(f.estado_periodo.termino),
             "Resolución": f.periodo["resolucion"],
             "Fuente": "El Peruano (real)" if f.periodo["fuente"] == "el_peruano" else
-                      "PDF subido" if f.periodo["fuente"] == "pdf" else "demo",
+                      "Registrado desde la norma (real)" if f.periodo["fuente"] == "pdf" else "demo",
         } for f in xs])
         st.dataframe(dfp, hide_index=True, use_container_width=True, height=420)
 
@@ -317,7 +328,7 @@ with tab_per:
             marker_color=[COLORES[f.estado_periodo.clase] for f in xs], opacity=0.35, name="Periodo regulatorio",
             hovertext=[f"{fmt(f.estado_periodo.inicio)} – {fmt(f.estado_periodo.termino)}" for f in xs],
             hoverinfo="text+y"))
-        for hid, simbolo, nombre in (("comunicacion_sunass", "diamond", "Sunass comunica (19 m)"),
+        for hid, simbolo, nombre in (("comunicacion_eps", "diamond", "Comunicación a la EPS (19 m)"),
                                      ("solicitud_eps", "triangle-up", "EPS solicita (10 m)")):
             pts = [(n, next(h for h in f.estado_periodo.hitos if h.id == hid)) for n, f in zip(nombres_p, xs)]
             gp.add_trace(go.Scatter(y=[n for n, _ in pts], x=[h.fecha for _, h in pts], mode="markers", name=nombre,

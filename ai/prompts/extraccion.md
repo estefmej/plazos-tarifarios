@@ -6,7 +6,7 @@ Responde SOLO con un objeto JSON, sin texto antes ni después, con esta forma ex
 {
   "es_resolucion": true,
   "tipo": "inicio_revision_periodica | ampliacion_plazo | suspension_plazo | aprobacion_proyecto | aprobacion_final | otro",
-  "numero_resolucion": "texto tal como aparece, por ejemplo 'N.° 012-2026-SUNASS-CD'",
+  "numero_resolucion": "texto tal como aparece, por ejemplo 'N.° 012-2026-XX-CD'",
   "eps": "nombre de la empresa prestadora tal como aparece",
   "fecha_emision": "AAAA-MM-DD",
   "fecha_publicacion_el_peruano": "AAAA-MM-DD",
