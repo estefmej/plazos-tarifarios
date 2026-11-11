@@ -51,7 +51,7 @@ class Extraccion:
 
 # ---------- lectura del PDF ----------
 
-def texto_pdf(pdf: bytes, max_paginas: int = 30) -> tuple[str, int]:
+def texto_pdf(pdf: bytes, max_paginas: int = 12) -> tuple[str, int]:
     lector = PdfReader(io.BytesIO(pdf))
     partes = []
     for i, pag in enumerate(lector.pages[:max_paginas], start=1):
@@ -201,7 +201,7 @@ def extraer_texto(texto: str, paginas: int = 1, pdf: bytes | None = None) -> Ext
     avisos: list[str] = []
 
     if llm.disponible():
-        datos = llm.pedir_json(PROMPT, pdf=pdf) if escaneado else llm.pedir_json(PROMPT, texto=texto[:120_000])
+        datos = llm.pedir_json(PROMPT, pdf=pdf) if escaneado else llm.pedir_json(PROMPT, texto=texto[:30_000])
         modo = "ia"
         if escaneado:
             avisos.append("El PDF parece escaneado: el modelo lo leyó como imagen.")
@@ -240,14 +240,22 @@ def html_a_texto(html: str) -> str:
     return re.sub(r"\n\s*\n+", "\n", texto).strip()
 
 
+DOMINIOS_PERMITIDOS = ("elperuano.pe", "gob.pe")
+
+
 def extraer_url(url: str) -> Extraccion:
-    """Lee una norma desde su página en busquedas.elperuano.pe (scraping de una página pública)."""
+    """Lee una norma desde un enlace público: la página de El Peruano (HTML) o un PDF de El Peruano o gob.pe."""
     import requests
-    if "elperuano.pe" not in url:
-        raise ValueError("Pega un enlace de busquedas.elperuano.pe.")
-    r = requests.get(url, timeout=25, headers={"User-Agent": "Mozilla/5.0 (Plazia; proyecto academico)"})
+    from urllib.parse import urlparse
+    host = urlparse(url).netloc.lower()
+    if not any(host == d or host.endswith("." + d) for d in DOMINIOS_PERMITIDOS):
+        raise ValueError("Pega un enlace de busquedas.elperuano.pe o de gob.pe.")
+    r = requests.get(url, timeout=40, headers={"User-Agent": "Mozilla/5.0 (Plazia; proyecto academico)"})
     r.raise_for_status()
+    tipo = r.headers.get("Content-Type", "").lower()
+    if "pdf" in tipo or r.content[:5] == b"%PDF-" or urlparse(url).path.lower().endswith(".pdf"):
+        return extraer(r.content)      # el enlace es un PDF: se lee igual que uno subido
     texto = html_a_texto(r.text)
     if len(texto) < 500:
-        raise ValueError("La página no trajo el texto de la norma. Descarga el PDF desde El Peruano y súbelo.")
+        raise ValueError("La página no trajo el texto de la norma. Descarga el PDF y súbelo.")
     return extraer_texto(texto, 1)

@@ -382,12 +382,12 @@ with tab_pdf:
             except Exception as e:
                 st.error(f"No se pudo leer el documento: {e}")
 
-    st.write("**…o pega el enlace de la norma en El Peruano** (busquedas.elperuano.pe/dispositivo/NL/…)")
+    st.write("**…o pega el enlace de la norma**: página de El Peruano (busquedas.elperuano.pe/dispositivo/NL/…) o PDF de El Peruano o gob.pe")
     u1, u2 = st.columns([3, 1])
     url_norma = u1.text_input("Enlace de El Peruano", label_visibility="collapsed",
                               placeholder="https://busquedas.elperuano.pe/dispositivo/NL/2332109-1")
     if u2.button("Leer enlace", use_container_width=True, disabled=not url_norma):
-        with st.spinner("Descargando la norma de El Peruano y leyéndola…"):
+        with st.spinner("Descargando la norma y leyéndola…"):
             try:
                 st.session_state.extraccion = (url_norma.strip(), extraer_url(url_norma.strip()))
             except Exception as e:

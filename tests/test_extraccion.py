@@ -69,3 +69,26 @@ def test_pagina_el_peruano_fecha_y_duracion():
     assert x.datos["duracion_anios"] == 4
     assert x.datos["regla_inicio_periodo"] == "anio_fiscal_siguiente"
     assert x.eps_id == "epsel"
+
+
+def test_enlace_pdf_gob_pe(monkeypatch):
+    import requests
+    pdf = (FIX / "resolucion_ficticia_aprobacion.pdf").read_bytes()
+
+    class Resp:
+        content = pdf
+        text = ""
+        headers = {"Content-Type": "application/pdf"}
+
+        def raise_for_status(self):
+            pass
+
+    monkeypatch.setattr(requests, "get", lambda *a, **k: Resp())
+    x = X.extraer_url("https://cdn.www.gob.pe/uploads/document/file/1/res.PDF?v=1")
+    assert x.datos["tipo"] == "aprobacion_final" and x.eps_id == "huacho"
+
+
+def test_enlace_de_otro_dominio_rechazado():
+    import pytest
+    with pytest.raises(ValueError):
+        X.extraer_url("https://ejemplo.com/norma.pdf")
