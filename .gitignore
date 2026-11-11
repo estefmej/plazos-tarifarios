@@ -1,0 +1,14 @@
+# secretos
+.env
+.streamlit/secrets.toml
+# base de datos local
+data/*.db
+tests/_prueba.db
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+# sistema
+.DS_Store

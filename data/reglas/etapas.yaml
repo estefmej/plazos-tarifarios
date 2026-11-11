@@ -1,0 +1,29 @@
+# Etapas del procedimiento de revisión periódica y sus plazos en días hábiles.
+# IMPORTANTE: estos valores son ILUSTRATIVOS. Reemplázalos por los del reglamento vigente.
+# Cada plazo se cuenta desde el vencimiento de la etapa anterior
+# (la etapa "inicio" es la publicación de la resolución en El Peruano).
+procedimiento: revision_periodica
+etapas:
+  - id: inicio
+    nombre: Publicación de la resolución de inicio en El Peruano
+    dias_habiles: 0
+  - id: info
+    nombre: Entrega de información de la EPS
+    dias_habiles: 20
+  - id: campo
+    nombre: Visita de campo y validación de datos
+    dias_habiles: 30
+  - id: proyecto
+    nombre: Publicación del proyecto de estudio tarifario
+    dias_habiles: 60
+  - id: audiencia
+    nombre: Audiencia pública
+    dias_habiles: 15
+  - id: comentarios
+    nombre: Cierre de comentarios de los interesados
+    dias_habiles: 10
+  - id: final
+    nombre: Resolución final y estudio tarifario
+    dias_habiles: 30
+semaforo:
+  por_vencer_dias_habiles: 10   # ámbar si faltan 10 días hábiles o menos
