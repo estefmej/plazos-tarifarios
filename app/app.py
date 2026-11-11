@@ -134,6 +134,8 @@ def mostrar_eps(f: D.Fila, clave: str) -> None:
     st.write(f"Resolución de inicio: **{f.proc['resolucion']}** · publicada en El Peruano el "
              f"**{fmt(date.fromisoformat(f.proc['fecha_publicacion']))}** · fuente: `{f.proc['fuente']}` · "
              f"responsable: {f.proc['responsable'] or '—'} ({f.proc['subgerencia'] or '—'})")
+    for aviso in est.advertencias:
+        st.warning(aviso)
     st.dataframe(tabla_cronograma(est), hide_index=True, use_container_width=True)
     if est.actual is not None:
         e = est.etapas[est.actual]
@@ -486,10 +488,17 @@ with tab_pdf:
                 r1, r2 = st.columns(2)
                 inicio_p = r1.date_input("Inicio del periodo regulatorio", value=ini_calc, format="DD/MM/YYYY")
                 r1.caption(f"Calculado como {expl} ({origen}).")
-                sugerida = d.get("duracion_anios") or R.duracion_desde_anios(
-                    d.get("periodo_anio_inicio"), d.get("periodo_anio_fin"), ini_calc) or 5
+                inferida = R.duracion_desde_anios(
+                    d.get("periodo_anio_inicio"), d.get("periodo_anio_fin"), ini_calc)
+                sugerida = d.get("duracion_anios") or inferida or 5
                 anios_p = r2.selectbox("Duración (años)", [3, 4, 5], index=[3, 4, 5].index(int(sugerida)),
                                        help="La Ley del Servicio Universal fija periodos de 3 a 5 años.")
+                if not d.get("duracion_anios") and inferida is None and d.get("periodo_anio_fin"):
+                    # Antes se caía en 5 años sin decirlo: con un título «2024-2026» eso movía el término
+                    # y los hitos de 19 y 10 meses cuatro años, y el usuario no tenía cómo notarlo.
+                    r2.warning(f"No se pudo deducir la duración del título "
+                               f"{d.get('periodo_anio_inicio')}–{d['periodo_anio_fin']} con un inicio el "
+                               f"{fmt(ini_calc)}: se propone 5 años solo como valor inicial. Elige la duración.")
                 if d.get("periodo_anio_inicio"):
                     r2.caption(f"La resolución menciona el periodo {d['periodo_anio_inicio']}–"
                                f"{d.get('periodo_anio_fin') or '?'}.")

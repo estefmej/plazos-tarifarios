@@ -58,6 +58,23 @@ streamlit run app/app.py
 ```
 Sin clave, la app funciona en modo básico (lectura con expresiones regulares y asistente limitado).
 
+**Sin la interfaz** (cron, script, revisión puntual): el motor también se usa desde la terminal.
+
+```bash
+python -m backend cronograma --publicacion 2026-11-06 --evento info=15
+python -m backend tablero --hoy 2026-11-11 --clase rojo
+python -m backend periodo --inicio 2026-01-01 --anios 5 --hoy 2030-06-01
+python -m backend ics --publicacion 2026-11-06 --eps SEDAPAL --salida plazos.ics
+```
+
+Todos los comandos leen las mismas reglas de `data/reglas/` y aceptan `--json`. `ics` genera un
+calendario que se importa en Outlook o Google Calendar, con recordatorio propio.
+
+**Calendario de feriados:** `data/reglas/feriados.csv` cubre 2023–2028 con los feriados nacionales
+(Semana Santa incluida). El plazo se cuenta en días hábiles, así que un año sin feriados cargados
+no se puede deducir: la app y la CLI avisan cuando un cronograma se sale de esa cobertura, en vez
+de devolver una fecha que parece legal. Si un procedimiento llega a 2029, agrega ese año al archivo.
+
 | Tablero | Lectura de la resolución | Asistente |
 |---|---|---|
 | ![](docs/capturas/01-tablero.png) | ![](docs/capturas/02-lectura-pdf.png) | ![](docs/capturas/03-asistente.png) |

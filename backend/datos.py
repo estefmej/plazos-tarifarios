@@ -175,8 +175,11 @@ def tablero(hoy: date) -> list[Fila]:
             est = P.estado(_a_fecha(proc["fecha_publicacion"]) if proc else None, evs, hoy)
             per = periodo_vigente(con, e["id"], hoy)
             ini = _a_fecha(per["inicio"]) if per else None
-            # La EPS ya solicitó la revisión si tiene un procedimiento en curso iniciado durante este periodo.
-            solicito = bool(proc and ini and est.actual is not None and proc["fecha_publicacion"] >= per["inicio"])
+            # La EPS ya solicitó la revisión si tiene un procedimiento iniciado durante este periodo,
+            # esté en curso o ya concluido. Antes se exigía además que el procedimiento siguiera abierto
+            # (`est.actual is not None`): al marcar la última etapa como cumplida, el periodo volvía a
+            # «Solicitud no registrada» y el tablero acusaba a la EPS de no haber presentado nada.
+            solicito = bool(proc and per and proc["fecha_publicacion"] >= per["inicio"])
             est_per = R.estado(ini, per["anios"] if per else None, hoy, solicito)
             salida.append(Fila(e, proc, evs, est, per, est_per))
     return salida
