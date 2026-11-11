@@ -10,7 +10,6 @@ os.environ["PLAZOS_DB"] = str(Path(__file__).parent / "_prueba.db")
 
 import anthropic  # noqa: E402
 
-from ai import llm  # noqa: E402
 from ai.asistente import Asistente  # noqa: E402
 from backend import datos as D  # noqa: E402
 

@@ -9,7 +9,6 @@ from datetime import date
 
 from ai import llm
 from backend import datos as D
-from backend import plazos as P
 
 SISTEMA = """Eres el asistente de plazos de una gerencia de regulación tarifaria del sector saneamiento en el Perú.
 Respondes en español, en texto breve (2 a 6 líneas), claro y sin Markdown pesado.
@@ -116,7 +115,8 @@ class Asistente:
         return sorted(salida, key=lambda x: x["dias_calendario"] if x["dias_calendario"] is not None else 0)
 
     def herramientas(self) -> list[llm.Herramienta]:
-        obj = lambda props, req: {"type": "object", "properties": props, "required": req}
+        def obj(props, req):
+            return {"type": "object", "properties": props, "required": req}
         return [
             llm.Herramienta("buscar_eps", "Busca EPS por nombre, ciudad o parte del nombre. Devuelve id, nombre, "
                             "ciudad y departamento. Úsala antes de plazos_eps.",

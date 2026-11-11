@@ -1,0 +1,21 @@
+# Configuración de herramientas. La app se ejecuta desde la raíz del repo
+# (`streamlit run app/app.py`) y no se distribuye como paquete instalable.
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# La raíz del repo en sys.path: así `pytest` y `python -m pytest` importan
+# `backend` y `ai` sin que cada archivo de prueba repita el sys.path.insert.
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]   # las líneas largas de la interfaz se leen mejor sin partir
+
+[tool.ruff.lint.per-file-ignores]
+# Streamlit exige st.set_page_config() antes de importar el resto, y las pruebas
+# ajustan sys.path antes de importar `backend`.
+"app/app.py" = ["E402"]
+"tests/*" = ["E402"]

@@ -11,9 +11,9 @@ from __future__ import annotations
 import difflib
 import io
 import re
-from html import unescape
 from dataclasses import dataclass, field
 from datetime import date
+from html import unescape
 from pathlib import Path
 
 from pypdf import PdfReader
